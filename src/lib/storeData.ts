@@ -3,7 +3,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Requester' | 'Purchase' | 'Store' | 'Accounts' | 'Management';
+  role: string;
   department: string;
   active: boolean;
 }
@@ -109,7 +109,7 @@ export interface PurchaseOrder {
   deliveryLocation: string;
   termsConditions: string;
   remarks: string;
-  status: 'Draft' | 'Approved' | 'Order Placed' | 'Acknowledged' | 'Partially Supplied' | 'Fully Supplied' | 'Closed';
+  status: 'Order Placed' | 'Partially Supplied' | 'Fully Supplied' | 'Closed';
   totalPOAmount: number;
 }
 
@@ -132,7 +132,7 @@ export interface GRN {
   poId: string;
   poNumber: string;
   vendorId: string;
-  vendorName?: string;
+  vendorName: string;
   projectId: string;
   projectName?: string;
   items: GRNItem[];
@@ -140,9 +140,8 @@ export interface GRN {
   challanNumber: string;
   vendorInvoiceNumber: string;
   remarks: string;
-  attachmentUrl?: string;
   receivedBy: string;
-  receiverName?: string;
+  receiverName: string;
 }
 
 export interface Stock {
@@ -155,16 +154,16 @@ export interface StockTransaction {
   id: string;
   date: string;
   itemId: string;
-  itemName?: string;
+  itemName: string;
   projectId: string;
-  projectName?: string;
-  transactionType: 'Inward' | 'Outward';
-  referenceNumber: string; // GRN or Issue Number
+  projectName: string;
+  transactionType: 'Inward' | 'Outward' | 'Transfer';
+  referenceNumber: string; // GRN Number or Issue Voucher Number
   inwardQty: number;
   outwardQty: number;
   balanceQty: number;
   userId: string;
-  userName?: string;
+  userName: string;
 }
 
 export interface StoreOutwardItem {
@@ -185,16 +184,16 @@ export interface StoreOutward {
   department: string;
   purpose: string;
   remarks: string;
-  approvedBy?: string;
-  approvedByName?: string;
+  approvedBy: string;
+  approvedByName: string;
   issuedBy: string;
-  issuedByName?: string;
+  issuedByName: string;
 }
 
 export interface VendorBill {
   id: string;
   vendorId: string;
-  vendorName?: string;
+  vendorName: string;
   poId: string;
   poNumber: string;
   billNumber: string;
@@ -204,13 +203,13 @@ export interface VendorBill {
   dueDate: string;
   paidAmount: number;
   outstandingAmount: number;
-  paymentStatus: 'Upcoming' | 'Due' | 'Payment Request Pending' | 'Payment Requested' | 'Partially Paid' | 'Paid' | 'Overdue';
+  paymentStatus: 'Upcoming' | 'Paid' | 'Partially Paid' | 'Payment Request Pending';
 }
 
 export interface PaymentRequest {
   id: string;
   vendorId: string;
-  vendorName?: string;
+  vendorName: string;
   billId: string;
   billNumber: string;
   poNumber: string;
@@ -220,7 +219,7 @@ export interface PaymentRequest {
   requestedAmount: number;
   requestDate: string;
   requestedBy: string;
-  requesterName?: string;
+  requesterName: string;
   remarks: string;
   status: 'Pending' | 'Approved' | 'Rejected';
 }
@@ -230,17 +229,16 @@ export interface PaymentEntry {
   paymentId: string;
   paymentDate: string;
   vendorId: string;
-  vendorName?: string;
+  vendorName: string;
   billId: string;
   billNumber: string;
   poNumber: string;
   paymentAmount: number;
   paymentMode: 'Bank Transfer/NEFT/RTGS' | 'Cheque' | 'UPI' | 'Cash';
-  transactionNumber: string;
+  transactionNumber: string; // UTR Number, Cheque Number etc.
   remarks: string;
-  attachmentUrl?: string;
   enteredBy: string;
-  enteredByName?: string;
+  enteredByName: string;
 }
 
 export interface AuditLog {
@@ -257,7 +255,7 @@ export interface AuditLog {
 
 export interface Notification {
   id: string;
-  recipientRole: 'Admin' | 'Requester' | 'Purchase' | 'Store' | 'Accounts' | 'Management' | 'All';
+  recipientRole: string;
   title: string;
   message: string;
   readBy: string[];
@@ -266,9 +264,14 @@ export interface Notification {
   timestamp: string;
 }
 
+export interface RolePermission {
+  role: string;
+  modules: string[];
+}
+
 // Initial Database seeds
 const INITIAL_USERS: User[] = [
-  { id: 'usr-1', name: 'Alok Sharma', email: 'admin@system.com', role: 'Admin', department: 'IT / Operations', active: true },
+  { id: 'usr-1', name: 'Alok Sharma', email: 'admin@gmail.com', role: 'Admin', department: 'IT / Operations', active: true },
   { id: 'usr-2', name: 'Rahul Verma', email: 'req@system.com', role: 'Requester', department: 'Civil Project site-A', active: true },
   { id: 'usr-3', name: 'Priya Patel', email: 'pur@system.com', role: 'Purchase', department: 'Procurement Cell', active: true },
   { id: 'usr-4', name: 'Manish Singh', email: 'store@system.com', role: 'Store', department: 'Central Storehouse', active: true },
@@ -321,10 +324,59 @@ const INITIAL_ITEMS: Item[] = [
   { id: 'itm-3', itemCode: 'SAF-HELM-YEL', name: 'Yellow Safety Helmet Class A', categoryId: 'cat-3', subCategory: 'PPE Headwear', unit: 'Pieces', description: 'Standard high-density PE safety helmet', minStock: 20, reorderLevel: 40 },
 ];
 
+const DEFAULT_ROLE_PERMISSIONS: RolePermission[] = [
+  { role: 'Admin', modules: ['dashboard', 'masters', 'pr', 'po', 'grn', 'stock', 'outward', 'bills', 'payment-req', 'payments', 'reports', 'audit', 'permissions'] },
+  { role: 'Requester', modules: ['dashboard', 'pr', 'stock', 'reports'] },
+  { role: 'Purchase', modules: ['dashboard', 'masters', 'pr', 'po', 'payment-req', 'reports'] },
+  { role: 'Store', modules: ['dashboard', 'pr', 'grn', 'stock', 'outward', 'reports'] },
+  { role: 'Accounts', modules: ['dashboard', 'pr', 'po', 'grn', 'bills', 'payment-req', 'payments', 'reports'] },
+  { role: 'Management', modules: ['dashboard', 'masters', 'pr', 'po', 'grn', 'stock', 'bills', 'payment-req', 'reports', 'audit'] }
+];
+
 // Helper to load/save state
 const DB_KEY = 'purchase_mgmt_db';
 
-export function getDatabase() {
+export interface DatabaseState {
+  users: User[];
+  projects: Project[];
+  vendors: Vendor[];
+  categories: Category[];
+  items: Item[];
+  purchaseRequests: PurchaseRequest[];
+  purchaseOrders: PurchaseOrder[];
+  grns: GRN[];
+  stock: Stock[];
+  stockTransactions: StockTransaction[];
+  storeOutwards: StoreOutward[];
+  vendorBills: VendorBill[];
+  paymentRequests: PaymentRequest[];
+  paymentEntries: PaymentEntry[];
+  auditLogs: AuditLog[];
+  notifications: Notification[];
+  rolePermissions: RolePermission[];
+}
+
+function deduplicateById<T extends { id: string }>(arr: T[]): T[] {
+  if (!arr) return [];
+  const seen = new Set<string>();
+  return arr.filter(item => {
+    if (!item.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function deduplicateByRole<T extends { role: string }>(arr: T[]): T[] {
+  if (!arr) return [];
+  const seen = new Set<string>();
+  return arr.filter(item => {
+    if (!item.role || seen.has(item.role)) return false;
+    seen.add(item.role);
+    return true;
+  });
+}
+
+export function getDatabase(): DatabaseState {
   if (typeof window === 'undefined') {
     return {
       users: INITIAL_USERS,
@@ -343,6 +395,7 @@ export function getDatabase() {
       paymentEntries: [],
       auditLogs: [],
       notifications: [],
+      rolePermissions: DEFAULT_ROLE_PERMISSIONS,
     };
   }
 
@@ -350,32 +403,36 @@ export function getDatabase() {
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
-      // Ensure all fields are arrays
-      return {
-        users: parsed.users || INITIAL_USERS,
-        projects: parsed.projects || INITIAL_PROJECTS,
-        vendors: parsed.vendors || INITIAL_VENDORS,
-        categories: parsed.categories || INITIAL_CATEGORIES,
-        items: parsed.items || INITIAL_ITEMS,
-        purchaseRequests: parsed.purchaseRequests || [],
-        purchaseOrders: parsed.purchaseOrders || [],
-        grns: parsed.grns || [],
+      const cleaned: DatabaseState = {
+        users: deduplicateById<User>(parsed.users || INITIAL_USERS),
+        projects: deduplicateById<Project>(parsed.projects || INITIAL_PROJECTS),
+        vendors: deduplicateById<Vendor>(parsed.vendors || INITIAL_VENDORS),
+        categories: deduplicateById<Category>(parsed.categories || INITIAL_CATEGORIES),
+        items: deduplicateById<Item>(parsed.items || INITIAL_ITEMS),
+        purchaseRequests: deduplicateById<PurchaseRequest>(parsed.purchaseRequests || []),
+        purchaseOrders: deduplicateById<PurchaseOrder>(parsed.purchaseOrders || []),
+        grns: deduplicateById<GRN>(parsed.grns || []),
         stock: parsed.stock || [],
-        stockTransactions: parsed.stockTransactions || [],
-        storeOutwards: parsed.storeOutwards || [],
-        vendorBills: parsed.vendorBills || [],
-        paymentRequests: parsed.paymentRequests || [],
-        paymentEntries: parsed.paymentEntries || [],
-        auditLogs: parsed.auditLogs || [],
-        notifications: parsed.notifications || [],
+        stockTransactions: deduplicateById<StockTransaction>(parsed.stockTransactions || []),
+        storeOutwards: deduplicateById<StoreOutward>(parsed.storeOutwards || []),
+        vendorBills: deduplicateById<VendorBill>(parsed.vendorBills || []),
+        paymentRequests: deduplicateById<PaymentRequest>(parsed.paymentRequests || []),
+        paymentEntries: deduplicateById<PaymentEntry>(parsed.paymentEntries || []),
+        auditLogs: deduplicateById<AuditLog>(parsed.auditLogs || []),
+        notifications: deduplicateById<Notification>(parsed.notifications || []),
+        rolePermissions: deduplicateByRole<RolePermission>(parsed.rolePermissions || DEFAULT_ROLE_PERMISSIONS),
       };
+      
+      // Sync cleaned structure back to storage
+      localStorage.setItem(DB_KEY, JSON.stringify(cleaned));
+      return cleaned;
     } catch (e) {
       console.error(e);
     }
   }
 
   // Pre-seed some default transactions for the demo flow
-  const seed = {
+  const seed: DatabaseState = {
     users: INITIAL_USERS,
     projects: INITIAL_PROJECTS,
     vendors: INITIAL_VENDORS,
@@ -393,19 +450,101 @@ export function getDatabase() {
         requiredDate: '2026-09-05',
         priority: 'High',
         items: [
-          { itemId: 'itm-1', itemName: 'Steel TMT Rebar 12mm', quantity: 25, unit: 'Metric Ton', remarks: 'Required for pillar casting' },
-          { itemId: 'itm-2', itemName: 'OPC 43 Grade Cement', quantity: 500, unit: 'Bags', remarks: 'Required for foundation work' }
+          { itemId: 'itm-1', itemName: 'Steel TMT Rebar 12mm', quantity: 25, unit: 'Metric Ton', remarks: 'Required for pillar casting' }
         ],
-        status: 'Approved',
+        status: 'PO Generated',
         history: [
           { status: 'Draft', user: 'usr-2', timestamp: '2026-08-25T10:00:00Z', remarks: 'Created request' },
           { status: 'Submitted', user: 'usr-2', timestamp: '2026-08-25T10:30:00Z', remarks: 'Sent for approval' },
-          { status: 'Approved', user: 'usr-3', timestamp: '2026-08-26T14:20:00Z', remarks: 'PR approved after site inspection' }
+          { status: 'Approved', user: 'usr-3', timestamp: '2026-08-26T14:20:00Z', remarks: 'PR approved after site inspection' },
+          { status: 'PO Generated', user: 'usr-3', timestamp: '2026-08-26T15:00:00Z', remarks: 'PO-2026-00125 Generated' }
+        ]
+      },
+      {
+        id: 'pr-2',
+        prNumber: 'PR-2026-00002',
+        requestDate: '2026-08-28',
+        projectId: 'prj-2',
+        projectName: 'Smart City Housing Block C',
+        requestedBy: 'usr-2',
+        requesterName: 'Rahul Verma',
+        requiredDate: '2026-09-12',
+        priority: 'Medium',
+        items: [
+          { itemId: 'itm-2', itemName: 'OPC 43 Grade Cement', quantity: 350, unit: 'Bags', remarks: 'For Block C foundation casting' }
+        ],
+        status: 'Submitted',
+        history: [
+          { status: 'Draft', user: 'usr-2', timestamp: '2026-08-28T09:00:00Z', remarks: 'Created' },
+          { status: 'Submitted', user: 'usr-2', timestamp: '2026-08-28T09:15:00Z', remarks: 'Submitted' }
+        ]
+      },
+      {
+        id: 'pr-3',
+        prNumber: 'PR-2026-00003',
+        requestDate: '2026-08-28',
+        projectId: 'prj-1',
+        projectName: 'Metro Line Extension Phase 2',
+        requestedBy: 'usr-2',
+        requesterName: 'Rahul Verma',
+        requiredDate: '2026-09-08',
+        priority: 'Urgent',
+        items: [
+          { itemId: 'itm-3', itemName: 'Yellow Safety Helmet Class A', quantity: 50, unit: 'Pieces', remarks: 'New site workers safety headwear' }
+        ],
+        status: 'Approved',
+        history: [
+          { status: 'Draft', user: 'usr-2', timestamp: '2026-08-28T10:00:00Z', remarks: 'Created' },
+          { status: 'Submitted', user: 'usr-2', timestamp: '2026-08-28T10:05:00Z', remarks: 'Submitted' },
+          { status: 'Approved', user: 'usr-3', timestamp: '2026-08-28T11:00:00Z', remarks: 'Approved' }
         ]
       }
     ],
-    purchaseOrders: [],
-    grns: [],
+    purchaseOrders: [
+      {
+        id: 'po-1',
+        poNumber: 'PO-2026-00125',
+        poDate: '2026-08-26',
+        prId: 'pr-1',
+        prNumber: 'PR-2026-00001',
+        projectId: 'prj-1',
+        projectName: 'Metro Line Extension Phase 2',
+        vendorId: 'ven-1',
+        vendorName: 'Tata Steel Ltd',
+        items: [
+          { itemId: 'itm-1', itemName: 'Steel TMT Rebar 12mm', quantity: 25, rate: 15200, tax: 18, discount: 0, totalAmount: 448400 }
+        ],
+        creditPeriod: 45,
+        expectedDeliveryDate: '2026-09-10',
+        deliveryLocation: 'Metro Line Extension Phase 2 Central Store',
+        termsConditions: 'Standard payment terms apply.',
+        remarks: 'Direct PO from Approved PR',
+        status: 'Fully Supplied',
+        totalPOAmount: 448400
+      }
+    ],
+    grns: [
+      {
+        id: 'grn-1',
+        grnNumber: 'GRN-2026-00501',
+        grnDate: '2026-08-27',
+        poId: 'po-1',
+        poNumber: 'PO-2026-00125',
+        vendorId: 'ven-1',
+        vendorName: 'Tata Steel Ltd',
+        projectId: 'prj-1',
+        projectName: 'Metro Line Extension Phase 2',
+        items: [
+          { itemId: 'itm-1', itemName: 'Steel TMT Rebar 12mm', orderedQty: 25, receivedQty: 25, shortQty: 0, excessQty: 0, damagedQty: 0, unit: 'Metric Ton', batchNumber: 'BAT-9922' }
+        ],
+        vehicleNumber: 'MH-12-PQ-9988',
+        challanNumber: 'CH-99281',
+        vendorInvoiceNumber: 'INV-TATA-998822',
+        remarks: 'Complete shipment received in good condition.',
+        receivedBy: 'usr-4',
+        receiverName: 'Manish Singh'
+      }
+    ],
     stock: [
       { projectId: 'prj-1', itemId: 'itm-1', quantity: 15 },
       { projectId: 'prj-1', itemId: 'itm-2', quantity: 80 },
@@ -429,19 +568,75 @@ export function getDatabase() {
       }
     ],
     storeOutwards: [],
-    vendorBills: [],
-    paymentRequests: [],
-    paymentEntries: [],
+    vendorBills: [
+      {
+        id: 'bill-1',
+        vendorId: 'ven-1',
+        vendorName: 'Tata Steel Ltd',
+        poId: 'po-1',
+        poNumber: 'PO-2026-00125',
+        billNumber: 'INV-TATA-998822',
+        billDate: '2026-08-27',
+        billAmount: 448400,
+        creditPeriod: 45,
+        dueDate: '2026-10-11',
+        paidAmount: 0,
+        outstandingAmount: 448400,
+        paymentStatus: 'Payment Request Pending'
+      }
+    ],
+    paymentRequests: [
+      {
+        id: 'preq-1',
+        vendorId: 'ven-1',
+        vendorName: 'Tata Steel Ltd',
+        billId: 'bill-1',
+        billNumber: 'INV-TATA-998822',
+        poNumber: 'PO-2026-00125',
+        billAmount: 448400,
+        dueDate: '2026-10-11',
+        outstandingAmount: 448400,
+        requestedAmount: 448400,
+        requestDate: '2026-08-28',
+        requestedBy: 'usr-2',
+        requesterName: 'Rahul Verma',
+        remarks: 'Urgent payment request for Tata Steel ledger balance clearance.',
+        status: 'Pending'
+      }
+    ],
+    paymentEntries: [
+      {
+        id: 'pay-mock-1',
+        paymentId: 'PAY-882211',
+        paymentDate: '2026-08-24',
+        vendorId: 'ven-2',
+        vendorName: 'UltraTech Cement Co',
+        billId: 'bill-old-mock',
+        billNumber: 'INV-ULT-776655',
+        poNumber: 'PO-2026-00099',
+        paymentAmount: 125000,
+        paymentMode: 'Bank Transfer/NEFT/RTGS',
+        transactionNumber: 'UTR998877112',
+        remarks: 'First tranche cement supplies dues cleared.',
+        enteredBy: 'usr-5',
+        enteredByName: 'Neha Gupta'
+      }
+    ],
     auditLogs: [
       { id: 'log-1', userId: 'usr-1', userName: 'Alok Sharma', action: 'System Setup', newValue: 'Seeded initial database parameters', module: 'System', referenceId: 'system', timestamp: '2026-08-29T12:00:00.000Z' }
     ],
     notifications: [
       { id: 'not-1', recipientRole: 'Purchase', title: 'New PR Pending Review', message: 'PR-2026-00001 has been submitted by Rahul Verma', readBy: [], referenceModule: 'PR', referenceId: 'pr-1', timestamp: '2026-08-25T10:30:00Z' }
     ],
+    rolePermissions: DEFAULT_ROLE_PERMISSIONS,
   };
 
   localStorage.setItem(DB_KEY, JSON.stringify(seed));
   return seed;
+}
+
+export async function fetchDatabaseFromBackend() {
+  return null;
 }
 
 export function saveDatabase(data: any) {
@@ -470,7 +665,7 @@ export function addAuditLog(userId: string, action: string, oldValue: string, ne
 }
 
 // Global notification creator helper
-export function sendNotification(recipientRole: User['role'] | 'All', title: string, message: string, referenceModule?: string, referenceId?: string) {
+export function sendNotification(recipientRole: string | 'All', title: string, message: string, referenceModule?: string, referenceId?: string) {
   const db = getDatabase();
   const newNotif: Notification = {
     id: `not-${Date.now()}-${Math.floor(Math.random() * 1000)}`,

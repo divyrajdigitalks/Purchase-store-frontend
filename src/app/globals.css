@@ -48,3 +48,42 @@
 .light-hover-shadow:hover {
   box-shadow: 0 10px 30px -4px rgba(4, 85, 152, 0.1);
 }
+
+/* Smooth Modal Animation Rules */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-backdrop-fade {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.animate-modal-zoom {
+  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Hide scrollbars but keep horizontal overflow scrolling active */
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}

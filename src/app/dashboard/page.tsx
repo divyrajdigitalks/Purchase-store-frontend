@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   getDatabase,
   saveDatabase,
+  fetchDatabaseFromBackend,
   addAuditLog,
   sendNotification,
   User,
@@ -21,13 +22,15 @@ import {
   PaymentRequest,
   PaymentEntry,
   AuditLog,
-  Notification
+  Notification,
+  RolePermission
 } from '@/lib/storeData';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Radio } from '@/components/ui/Radio';
+import { Table } from '@/components/ui/Table';
 import { toast } from 'sonner';
 import {
   LayoutDashboard,
@@ -67,7 +70,8 @@ type SidebarTab =
   | 'payments'
   | 'reports'
   | 'audit'
-  | 'notifications';
+  | 'notifications'
+  | 'permissions';
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -109,6 +113,10 @@ export default function DashboardPage() {
   const [paymentReqForm, setPaymentReqForm] = useState({ billId: '', requestedAmount: 0, remarks: '' });
   const [paymentEntryForm, setPaymentEntryForm] = useState({ billId: '', paymentAmount: 0, paymentMode: 'Bank Transfer/NEFT/RTGS' as PaymentEntry['paymentMode'], transactionNumber: '', remarks: '' });
 
+  // Custom roles creation state
+  const [customRoleName, setCustomRoleName] = useState('');
+  const [customRoleModules, setCustomRoleModules] = useState<string[]>(['dashboard']);
+
   useEffect(() => {
     const active = localStorage.getItem('active_user');
     if (active) {
@@ -125,13 +133,33 @@ export default function DashboardPage() {
     setDb({ ...newDb });
   };
 
-  const simulateRole = (role: User['role']) => {
+  const simulateRole = (role: string) => {
     if (!db || !currentUser) return;
-    const match = db.users.find(u => u.role === role);
-    if (match) {
-      localStorage.setItem('active_user', JSON.stringify(match));
-      setCurrentUser(match);
-      toast.success(`Role switched to ${role}`);
+    let match = db.users.find(u => u.role === role);
+    
+    // Auto mock tester user for custom role switcher logins
+    if (!match) {
+      const mockEmail = `${role.toLowerCase().replace(/\s+/g, '')}@system.com`;
+      const newUser = {
+        id: `usr-mock-${Date.now()}`,
+        name: `${role} Tester`,
+        email: mockEmail,
+        role: role,
+        department: 'Operations Division',
+        active: true
+      };
+      db.users.push(newUser);
+      match = newUser;
+    }
+    
+    localStorage.setItem('active_user', JSON.stringify(match));
+    setCurrentUser(match);
+    toast.success(`Role switched to ${role}`);
+    
+    // Automatically redirect back to overview tab if custom role lacks access permissions for current tab
+    const allowed = db.rolePermissions.find(rp => rp.role === role)?.modules || [];
+    if (!allowed.includes(activeTab)) {
+      setActiveTab('dashboard');
     }
   };
 
@@ -818,6 +846,55 @@ export default function DashboardPage() {
     }
   };
 
+  // Toggle Module permissions logic
+  const handleToggleModulePermission = (role: string, moduleId: string) => {
+    if (!db) return;
+    const roleIndex = db.rolePermissions.findIndex(rp => rp.role === role);
+    if (roleIndex === -1) return;
+
+    const currentModules = db.rolePermissions[roleIndex].modules;
+    if (currentModules.includes(moduleId)) {
+      // Admin layout tab can never be blocked from Admin profile to avoid locking out config grid
+      if (role === 'Admin' && moduleId === 'permissions') {
+        toast.warning('Admin profile must keep Role Permissions enabled.');
+        return;
+      }
+      db.rolePermissions[roleIndex].modules = currentModules.filter(m => m !== moduleId);
+    } else {
+      db.rolePermissions[roleIndex].modules = [...currentModules, moduleId];
+    }
+
+    updateDB(db);
+    toast.success(`Access modules adjusted for ${role}!`);
+  };
+
+  const handleCreateCustomRoleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !currentUser) return;
+    if (!customRoleName.trim()) {
+      toast.error('Please input a dynamic role name');
+      return;
+    }
+    if (db.rolePermissions.some(rp => rp.role.toLowerCase() === customRoleName.trim().toLowerCase())) {
+      toast.error('This role name is already registered');
+      return;
+    }
+
+    const newPerm: RolePermission = {
+      role: customRoleName.trim(),
+      modules: customRoleModules
+    };
+
+    db.rolePermissions.push(newPerm);
+    updateDB(db);
+    addAuditLog(currentUser.id, 'Register Custom Role', '', `Registered role ${customRoleName.trim()}`, 'Permissions Configuration', newPerm.role);
+    
+    toast.success(`Custom role "${customRoleName.trim()}" registered!`);
+    setCustomRoleName('');
+    setCustomRoleModules(['dashboard']);
+    setOpenModal(null);
+  };
+
   const filteredPRs = useMemo(() => {
     if (!db) return [];
     return db.purchaseRequests.filter(r => {
@@ -867,19 +944,26 @@ export default function DashboardPage() {
   }, [db, globalSearch, filterVendor, filterStatus]);
 
   const navigationOptions = [
-    { id: 'dashboard', name: 'Overview', icon: LayoutDashboard, roles: ['Admin', 'Requester', 'Purchase', 'Store', 'Accounts', 'Management'] },
-    { id: 'masters', name: 'System Masters', icon: Database, roles: ['Admin', 'Purchase', 'Management'] },
-    { id: 'pr', name: 'Purchase Requests', icon: FileText, roles: ['Admin', 'Requester', 'Purchase', 'Store', 'Accounts', 'Management'] },
-    { id: 'po', name: 'Purchase Orders', icon: FileSpreadsheet, roles: ['Admin', 'Purchase', 'Accounts', 'Management'] },
-    { id: 'grn', name: 'Store Inwards (GRN)', icon: ArrowDownLeft, roles: ['Admin', 'Store', 'Management', 'Accounts'] },
-    { id: 'stock', name: 'Stock & Ledger', icon: Package, roles: ['Admin', 'Store', 'Requester', 'Management'] },
-    { id: 'outward', name: 'Material Issues', icon: ArrowUpRight, roles: ['Admin', 'Store'] },
-    { id: 'bills', name: 'Vendor Bills', icon: CreditCard, roles: ['Admin', 'Accounts', 'Management'] },
-    { id: 'payment-req', name: 'Payment Requests', icon: FileCheck, roles: ['Admin', 'Accounts', 'Purchase', 'Management'] },
-    { id: 'payments', name: 'Payment Entries', icon: CreditCard, roles: ['Admin', 'Accounts'] },
-    { id: 'reports', name: 'Reports Catalog', icon: Layers, roles: ['Admin', 'Requester', 'Purchase', 'Store', 'Accounts', 'Management'] },
-    { id: 'audit', name: 'Audit Logs', icon: History, roles: ['Admin', 'Management'] },
+    { id: 'dashboard', name: 'Overview', icon: LayoutDashboard },
+    { id: 'masters', name: 'System Masters', icon: Database },
+    { id: 'pr', name: 'Purchase Requests', icon: FileText },
+    { id: 'po', name: 'Purchase Orders', icon: FileSpreadsheet },
+    { id: 'grn', name: 'Store Inwards (GRN)', icon: ArrowDownLeft },
+    { id: 'stock', name: 'Stock & Ledger', icon: Package },
+    { id: 'outward', name: 'Material Issues', icon: ArrowUpRight },
+    { id: 'bills', name: 'Vendor Bills', icon: CreditCard },
+    { id: 'payment-req', name: 'Payment Requests', icon: FileCheck },
+    { id: 'payments', name: 'Payment Entries', icon: CreditCard },
+    { id: 'reports', name: 'Reports Catalog', icon: Layers },
+    { id: 'audit', name: 'Audit Logs', icon: History },
+    { id: 'permissions', name: 'Role Permissions', icon: Sliders },
   ];
+
+  // Load custom visibility map for currentUser role
+  const currentUserPermissions = useMemo(() => {
+    if (!db || !currentUser) return [];
+    return db.rolePermissions.find(rp => rp.role === currentUser.role)?.modules || [];
+  }, [db, currentUser]);
 
   if (!currentUser || !db) {
     return (
@@ -899,11 +983,11 @@ export default function DashboardPage() {
             <div className="p-6 border-b border-slate-200/80">
               <div className="flex items-center space-x-3">
                 <div className="h-9 w-9 rounded-xl bg-primary-blue flex items-center justify-center font-black text-white text-md shadow-md shadow-blue-500/10">
-                  SS
+                  PS
                 </div>
                 <div>
-                  <h2 className="text-sm font-black text-slate-950 tracking-tight leading-none mb-0.5">SteelStream</h2>
-                  <p className="text-[9px] text-primary-blue uppercase tracking-widest font-extrabold">ERP</p>
+                  <h2 className="text-sm font-black text-slate-955 tracking-tight leading-none mb-0.5">Purchase Store</h2>
+                  <p className="text-[9px] text-primary-blue uppercase tracking-widest font-extrabold">Management</p>
                 </div>
               </div>
             </div>
@@ -911,20 +995,24 @@ export default function DashboardPage() {
             <nav className="p-4 space-y-1 overflow-y-auto">
               <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold px-3 mb-2">Workspace Modules</p>
               {navigationOptions.map((link) => {
-                if (!link.roles.includes(currentUser.role)) return null;
+                // Dynamically filter sidebar buttons by RBAC permissions config
+                if (!currentUserPermissions.includes(link.id)) return null;
                 const Icon = link.icon;
                 return (
                   <button
                     key={link.id}
                     onClick={() => setActiveTab(link.id as SidebarTab)}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-250 cursor-pointer ${
+                    className={`w-full flex items-center px-4 py-2.5 rounded-xl transition-all duration-250 cursor-pointer ${
                       activeTab === link.id
-                        ? 'bg-blue-50 text-[#045598] font-bold border border-blue-100/50'
+                        ? 'bg-[#045598] text-white font-bold shadow-md shadow-blue-900/10'
                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 font-semibold'
                     }`}
                   >
-                    <Icon className="h-4.5 w-4.5 flex-shrink-0" />
-                    <span className="text-xs">{link.name}</span>
+                    <Icon className="h-4.5 w-4.5 flex-shrink-0 mr-3" />
+                    <span className="text-xs flex-grow text-left">{link.name}</span>
+                    {activeTab === link.id && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    )}
                   </button>
                 );
               })}
@@ -957,18 +1045,18 @@ export default function DashboardPage() {
         
         {/* Header - Dynamically renders Nav items if Header navigation layout enabled */}
         <header className="h-20 flex items-center justify-between px-8 bg-white border-b border-slate-200/80 z-10 flex-shrink-0">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 flex-shrink-0">
             <h1 className="text-sm font-black text-slate-955 tracking-wider uppercase mr-2">
-              SteelStream
+              Purchase Store
             </h1>
 
             {/* Layout position toggle switch */}
-            <div className="h-8 flex items-center bg-slate-50 rounded-full px-2 border border-slate-250">
-              <span className="text-[10px] text-slate-400 font-bold uppercase mr-2 ml-1">Menu:</span>
+            <div className="h-9 flex items-center bg-slate-50 rounded-xl px-1.5 border border-slate-200 shadow-sm">
+              <span className="text-[10px] text-slate-500 font-bold uppercase mr-2.5 ml-1 select-none">Menu:</span>
               <button
                 type="button"
                 onClick={() => setNavLayout('sidebar')}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
                   navLayout === 'sidebar' ? 'bg-[#045598] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -977,7 +1065,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => setNavLayout('header')}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
                   navLayout === 'header' ? 'bg-[#045598] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -989,15 +1077,11 @@ export default function DashboardPage() {
             <div className="w-44">
               <Select
                 value={currentUser.role}
-                onChange={(e) => simulateRole(e.target.value as User['role'])}
-                options={[
-                  { value: 'Admin', label: 'Admin' },
-                  { value: 'Requester', label: 'Requester' },
-                  { value: 'Purchase', label: 'Purchase' },
-                  { value: 'Store', label: 'Store Manager' },
-                  { value: 'Accounts', label: 'Accounts' },
-                  { value: 'Management', label: 'Management' }
-                ]}
+                onChange={(e) => simulateRole(e.target.value)}
+                options={db.rolePermissions.map(p => ({
+                  value: p.role,
+                  label: p.role
+                }))}
                 className="py-1 px-3 border border-slate-250 text-xs bg-slate-50 font-bold"
               />
             </div>
@@ -1005,18 +1089,18 @@ export default function DashboardPage() {
 
           {/* Horizontal Top Header Menu Navigation links if header mode enabled */}
           {navLayout === 'header' && (
-            <div className="flex items-center space-x-1.5 max-w-lg overflow-x-auto px-4 border-l border-r border-slate-200 py-1">
+            <div className="flex-grow flex flex-nowrap items-center gap-2 px-6 overflow-x-auto scrollbar-none py-2 select-none">
               {navigationOptions.map((link) => {
-                if (!link.roles.includes(currentUser.role)) return null;
+                if (!currentUserPermissions.includes(link.id)) return null;
                 const Icon = link.icon;
                 return (
                   <button
                     key={link.id}
                     onClick={() => setActiveTab(link.id as SidebarTab)}
-                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all text-xs font-bold cursor-pointer flex-shrink-0 ${
+                    className={`flex items-center space-x-2 px-3.5 py-2.5 rounded-xl transition-all text-xs font-bold cursor-pointer flex-shrink-0 border border-transparent ${
                       activeTab === link.id
-                        ? 'bg-blue-50 text-[#045598]'
-                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                        ? 'bg-[#045598] text-white shadow-sm'
+                        : 'bg-white text-slate-650 hover:bg-slate-100/50 hover:text-slate-900'
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -1027,7 +1111,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-slate-400" />
               <input
@@ -1035,7 +1119,7 @@ export default function DashboardPage() {
                 placeholder="Search..."
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-full pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-[#045598] transition-all w-48 text-slate-900 placeholder-slate-400 font-semibold"
+                className="bg-slate-50 border border-slate-200 rounded-full pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all w-48 text-slate-900 placeholder-slate-400 font-semibold"
               />
             </div>
 
@@ -1092,7 +1176,7 @@ export default function DashboardPage() {
                 <Card className="p-6">
                   <p className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-1">Vendor Dues Outstanding</p>
                   <h3 className="text-2xl font-black text-slate-955 mb-1">
-                    ₹{db.vendorBills.reduce((acc,b)=>acc+b.outstandingAmount,0).toLocaleString('en-IN')}
+                    ₹{db.vendorBills.reduce((acc: number, b) => acc + b.outstandingAmount, 0).toLocaleString('en-IN')}
                   </h3>
                   <div className="text-[10px] text-rose-550 font-bold uppercase">Outstanding payables</div>
                 </Card>
@@ -1250,76 +1334,56 @@ export default function DashboardPage() {
                 
                 <Card className="p-6">
                   <h3 className="text-xs uppercase font-black tracking-wider text-slate-400 mb-3">Construction Site Projects</h3>
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                        <th className="pb-2">Name</th>
-                        <th className="pb-2">Location</th>
-                        <th className="pb-2">Status</th>
+                  <Table
+                    headers={['Name', 'Location', 'Status']}
+                    data={db.projects}
+                    itemsPerPage={5}
+                    renderRow={(proj: Project) => (
+                      <tr key={proj.id} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-6 py-2.5 font-bold">{proj.name}</td>
+                        <td className="px-6">{proj.location}</td>
+                        <td className="px-6">
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-600">
+                            {proj.status}
+                          </span>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {db.projects.map(proj => (
-                        <tr key={proj.id} className="border-b border-slate-100 text-slate-700">
-                          <td className="py-2.5 font-bold">{proj.name}</td>
-                          <td>{proj.location}</td>
-                          <td>
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-55 text-emerald-600 bg-emerald-50">
-                              {proj.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                    )}
+                  />
                 </Card>
 
                 <Card className="p-6">
                   <h3 className="text-xs uppercase font-black tracking-wider text-slate-400 mb-3">Vendor Supplier Registers</h3>
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                        <th className="pb-2">Vendor Name</th>
-                        <th className="pb-2">GSTIN</th>
-                        <th className="pb-2">Credit Days</th>
+                  <Table
+                    headers={['Vendor Name', 'GSTIN', 'Credit Days']}
+                    data={db.vendors}
+                    itemsPerPage={5}
+                    renderRow={(ven: Vendor) => (
+                      <tr key={ven.id} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-6 py-2.5 font-bold">{ven.name}</td>
+                        <td className="px-6 font-mono">{ven.gstNo}</td>
+                        <td className="px-6 font-bold">{ven.creditPeriod} Days</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {db.vendors.map(ven => (
-                        <tr key={ven.id} className="border-b border-slate-100 text-slate-700">
-                          <td className="py-2.5 font-bold">{ven.name}</td>
-                          <td className="font-mono">{ven.gstNo}</td>
-                          <td className="font-bold">{ven.creditPeriod} Days</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                    )}
+                  />
                 </Card>
 
                 <Card className="p-6 lg:col-span-2">
                   <h3 className="text-xs uppercase font-black tracking-wider text-slate-400 mb-3">Inventory Material Specifications</h3>
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                        <th className="pb-2">Item Code</th>
-                        <th className="pb-2">Name</th>
-                        <th className="pb-2">Category</th>
-                        <th className="pb-2">Measurement Unit</th>
-                        <th className="pb-2 text-right">Safety Minimum</th>
+                  <Table
+                    headers={['Item Code', 'Name', 'Category', 'Measurement Unit', 'Safety Minimum']}
+                    data={db.items}
+                    itemsPerPage={5}
+                    renderRow={(it: Item) => (
+                      <tr key={it.id} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-6 py-2.5 font-mono text-primary-blue font-bold">{it.itemCode}</td>
+                        <td className="px-6 font-bold">{it.name}</td>
+                        <td className="px-6">{it.categoryName || 'General'}</td>
+                        <td className="px-6">{it.unit}</td>
+                        <td className="px-6 text-right text-rose-550 font-bold">{it.minStock}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {db.items.map(it => (
-                        <tr key={it.id} className="border-b border-slate-100 text-slate-700">
-                          <td className="py-2.5 font-mono text-primary-blue font-bold">{it.itemCode}</td>
-                          <td className="font-bold">{it.name}</td>
-                          <td>{it.categoryName || 'General'}</td>
-                          <td>{it.unit}</td>
-                          <td className="text-right text-rose-550 font-bold">{it.minStock}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                    )}
+                  />
                 </Card>
 
               </div>
@@ -1348,12 +1412,12 @@ export default function DashboardPage() {
                   placeholder="Search PR registers..."
                   value={globalSearch}
                   onChange={(e) => setGlobalSearch(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg text-xs px-3 py-1.5 outline-none font-semibold text-slate-900"
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg text-xs px-3 py-1.5 font-semibold text-slate-900 focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all"
                 />
                 <select
                   value={filterProject}
                   onChange={(e) => setFilterProject(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-lg text-xs px-2 text-slate-600 outline-none cursor-pointer"
+                  className="bg-slate-50 border border-slate-200 rounded-lg text-xs px-2 text-slate-600 outline-none cursor-pointer focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10"
                 >
                   <option value="">All Projects</option>
                   {db.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1361,77 +1425,65 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                        <th className="pb-3">PR Number</th>
-                        <th className="pb-3">Site Location</th>
-                        <th className="pb-3">Raised By</th>
-                        <th className="pb-3">Required Date</th>
-                        <th className="pb-3">Priority</th>
-                        <th className="pb-3">Status</th>
-                        <th className="pb-3 text-center">Workflows</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredPRs.map(pr => (
-                        <tr key={pr.id} className="border-b border-slate-100 text-slate-700">
-                          <td className="py-4 font-mono font-bold text-primary-blue">{pr.prNumber}</td>
-                          <td className="font-bold text-slate-900">{pr.projectName}</td>
-                          <td>{pr.requesterName}</td>
-                          <td>{pr.requiredDate}</td>
-                          <td>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                              pr.priority === 'High' || pr.priority === 'Urgent' ? 'bg-rose-5 text-rose-600' : 'bg-slate-100 text-slate-600'
-                            }`}>{pr.priority}</span>
-                          </td>
-                          <td>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                              pr.status === 'Approved' ? 'bg-emerald-5 text-emerald-600' :
-                              pr.status === 'Rejected' ? 'bg-rose-5 text-rose-600' :
-                              'bg-amber-5 text-amber-600'
-                            }`}>{pr.status}</span>
-                          </td>
-                          <td className="py-4 flex justify-center space-x-2">
+                <Table
+                  headers={['PR Number', 'Site Location', 'Raised By', 'Required Date', 'Priority', 'Status', 'Workflows']}
+                  data={filteredPRs}
+                  itemsPerPage={5}
+                  renderRow={(pr: PurchaseRequest) => (
+                    <tr key={pr.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-primary-blue">{pr.prNumber}</td>
+                      <td className="px-6 font-bold text-slate-900">{pr.projectName}</td>
+                      <td className="px-6">{pr.requesterName}</td>
+                      <td className="px-6">{pr.requiredDate}</td>
+                      <td className="px-6">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          pr.priority === 'High' || pr.priority === 'Urgent' ? 'bg-rose-5 text-rose-600' : 'bg-slate-100 text-slate-600'
+                        }`}>{pr.priority}</span>
+                      </td>
+                      <td className="px-6">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          pr.status === 'Approved' ? 'bg-emerald-5 text-emerald-600' :
+                          pr.status === 'Rejected' ? 'bg-rose-5 text-rose-600' :
+                          'bg-amber-5 text-amber-600'
+                        }`}>{pr.status}</span>
+                      </td>
+                      <td className="px-6 py-4 flex justify-center space-x-2">
+                        <button
+                          onClick={() => { setSelectedPrDetail(pr); setOpenModal('pr-detail'); }}
+                          className="px-2.5 py-1 bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-650 rounded-lg cursor-pointer"
+                        >
+                          Timeline Track
+                        </button>
+
+                        {currentUser.role === 'Purchase' && pr.status === 'Submitted' && (
+                          <>
                             <button
-                              onClick={() => { setSelectedPrDetail(pr); setOpenModal('pr-detail'); }}
-                              className="px-2.5 py-1 bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-650 rounded-lg cursor-pointer"
+                              onClick={() => handlePRStatusUpdate(pr.id, 'Approved')}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-550 text-[10px] font-bold text-white rounded-lg cursor-pointer"
                             >
-                              Timeline Track
+                              Approve
                             </button>
+                            <button
+                              onClick={() => { setSelectedPr(pr); setOpenModal('pr-reject'); }}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-550 text-[10px] font-bold text-white rounded-lg cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
 
-                            {currentUser.role === 'Purchase' && pr.status === 'Submitted' && (
-                              <>
-                                <button
-                                  onClick={() => handlePRStatusUpdate(pr.id, 'Approved')}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-550 text-[10px] font-bold text-white rounded-lg cursor-pointer"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => { setSelectedPr(pr); setOpenModal('pr-reject'); }}
-                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-550 text-[10px] font-bold text-white rounded-lg cursor-pointer"
-                                >
-                                  Reject
-                                </button>
-                              </>
-                            )}
-
-                            {currentUser.role === 'Purchase' && pr.status === 'Approved' && (
-                              <button
-                                onClick={() => handleOpenPOCreation(pr)}
-                                className="px-2.5 py-1 bg-primary-blue hover:bg-primary-blue-hover text-[10px] font-bold text-white rounded-lg cursor-pointer"
-                              >
-                                Create PO
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                        {currentUser.role === 'Purchase' && pr.status === 'Approved' && (
+                          <button
+                            onClick={() => handleOpenPOCreation(pr)}
+                            className="px-2.5 py-1 bg-primary-blue hover:bg-primary-blue-hover text-[10px] font-bold text-white rounded-lg cursor-pointer"
+                          >
+                            Create PO
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1446,37 +1498,27 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">PO Number</th>
-                      <th className="pb-3">PO Date</th>
-                      <th className="pb-3">PR ID</th>
-                      <th className="pb-3">Project Site</th>
-                      <th className="pb-3">Vendor</th>
-                      <th className="pb-3 text-right">Value (INR)</th>
-                      <th className="pb-3">Status</th>
+                <Table
+                  headers={['PO Number', 'PO Date', 'PR ID', 'Project Site', 'Vendor', 'Value (INR)', 'Status']}
+                  data={filteredPOs}
+                  itemsPerPage={5}
+                  renderRow={(po: PurchaseOrder) => (
+                    <tr key={po.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-primary-blue">{po.poNumber}</td>
+                      <td className="px-6">{po.poDate}</td>
+                      <td className="px-6 font-mono text-slate-400">{po.prNumber}</td>
+                      <td className="px-6 font-bold text-slate-905">{po.projectName}</td>
+                      <td className="px-6">{po.vendorName}</td>
+                      <td className="px-6 text-right font-bold text-slate-955">₹{po.totalPOAmount.toLocaleString('en-IN')}</td>
+                      <td className="px-6">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          po.status === 'Fully Supplied' ? 'bg-emerald-5 text-emerald-600' :
+                          'bg-blue-5 text-[#045598]'
+                        }`}>{po.status}</span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPOs.map(po => (
-                      <tr key={po.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-primary-blue">{po.poNumber}</td>
-                        <td>{po.poDate}</td>
-                        <td className="font-mono text-slate-400">{po.prNumber}</td>
-                        <td className="font-bold text-slate-905">{po.projectName}</td>
-                        <td>{po.vendorName}</td>
-                        <td className="text-right font-bold text-slate-955">₹{po.totalPOAmount.toLocaleString('en-IN')}</td>
-                        <td>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                            po.status === 'Fully Supplied' ? 'bg-emerald-5 text-emerald-600' :
-                            'bg-blue-5 text-[#045598]'
-                          }`}>{po.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1491,30 +1533,21 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">GRN Number</th>
-                      <th className="pb-3">Date</th>
-                      <th className="pb-3">PO Ref</th>
-                      <th className="pb-3">Vendor</th>
-                      <th className="pb-3">Project</th>
-                      <th className="pb-3">Challan Ref</th>
+                <Table
+                  headers={['GRN Number', 'Date', 'PO Ref', 'Vendor', 'Project', 'Challan Ref']}
+                  data={db.grns}
+                  itemsPerPage={5}
+                  renderRow={(grn: GRN) => (
+                    <tr key={grn.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-emerald-600">{grn.grnNumber}</td>
+                      <td className="px-6">{grn.grnDate}</td>
+                      <td className="px-6 font-mono text-slate-450">{grn.poNumber}</td>
+                      <td className="px-6 font-bold text-slate-955">{grn.vendorName}</td>
+                      <td className="px-6">{grn.projectName}</td>
+                      <td className="px-6 font-mono text-slate-450">{grn.challanNumber || 'N/A'}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {db.grns.map(grn => (
-                      <tr key={grn.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-emerald-600">{grn.grnNumber}</td>
-                        <td>{grn.grnDate}</td>
-                        <td className="font-mono text-slate-450">{grn.poNumber}</td>
-                        <td className="font-bold text-slate-955">{grn.vendorName}</td>
-                        <td>{grn.projectName}</td>
-                        <td className="font-mono text-slate-400">{grn.challanNumber || 'N/A'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1547,30 +1580,21 @@ export default function DashboardPage() {
 
                 <Card className="p-6 lg:col-span-2">
                   <h3 className="text-xs uppercase font-black text-slate-400 tracking-wider mb-4">Stock Ledger movements</h3>
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                        <th className="pb-3">Date</th>
-                        <th className="pb-3">Material Item</th>
-                        <th className="pb-3">Project Site</th>
-                        <th className="pb-3">Inward</th>
-                        <th className="pb-3">Outward</th>
-                        <th className="pb-3 text-right">Balance</th>
+                  <Table
+                    headers={['Date', 'Material Item', 'Project Site', 'Inward', 'Outward', 'Balance']}
+                    data={db.stockTransactions}
+                    itemsPerPage={10}
+                    renderRow={(tx: StockTransaction) => (
+                      <tr key={tx.id} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-6 py-3 text-slate-500 font-semibold">{tx.date}</td>
+                        <td className="px-6 font-bold text-slate-900">{tx.itemName}</td>
+                        <td className="px-6">{tx.projectName}</td>
+                        <td className="px-6 text-emerald-600 font-bold">{tx.inwardQty > 0 ? `+${tx.inwardQty}` : '-'}</td>
+                        <td className="px-6 text-rose-550 font-bold">{tx.outwardQty > 0 ? `-${tx.outwardQty}` : '-'}</td>
+                        <td className="px-6 text-right font-black text-slate-955">{tx.balanceQty}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {db.stockTransactions.map(tx => (
-                        <tr key={tx.id} className="border-b border-slate-100 text-slate-700">
-                          <td className="py-3 text-slate-455">{tx.date}</td>
-                          <td className="font-bold text-slate-900">{tx.itemName}</td>
-                          <td>{tx.projectName}</td>
-                          <td className="text-emerald-600 font-bold">{tx.inwardQty > 0 ? `+${tx.inwardQty}` : '-'}</td>
-                          <td className="text-rose-550 font-bold">{tx.outwardQty > 0 ? `-${tx.outwardQty}` : '-'}</td>
-                          <td className="text-right font-black text-slate-955">{tx.balanceQty}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                    )}
+                  />
                 </Card>
 
               </div>
@@ -1592,30 +1616,21 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">Issue ID</th>
-                      <th className="pb-3">Date</th>
-                      <th className="pb-3">Project</th>
-                      <th className="pb-3">Issued To</th>
-                      <th className="pb-3">Department</th>
-                      <th className="pb-3">Purpose</th>
+                <Table
+                  headers={['Issue ID', 'Date', 'Project', 'Issued To', 'Department', 'Purpose']}
+                  data={db.storeOutwards}
+                  itemsPerPage={10}
+                  renderRow={(out: StoreOutward) => (
+                    <tr key={out.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-primary-blue">{out.issueNumber}</td>
+                      <td className="px-6">{out.issueDate}</td>
+                      <td className="px-6 font-bold text-slate-900">{out.projectName}</td>
+                      <td className="px-6">{out.issuedTo}</td>
+                      <td className="px-6">{out.department}</td>
+                      <td className="px-6">{out.purpose}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {db.storeOutwards.map(out => (
-                      <tr key={out.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-primary-blue">{out.issueNumber}</td>
-                        <td>{out.issueDate}</td>
-                        <td className="font-bold text-slate-900">{out.projectName}</td>
-                        <td>{out.issuedTo}</td>
-                        <td>{out.department}</td>
-                        <td>{out.purpose}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1630,47 +1645,36 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">Invoice Ref</th>
-                      <th className="pb-3">PO Ref</th>
-                      <th className="pb-3">Vendor</th>
-                      <th className="pb-3">Due Date</th>
-                      <th className="pb-3 text-right">Invoice Amount</th>
-                      <th className="pb-3 text-right">Outstanding Amount</th>
-                      <th className="pb-3">Status</th>
-                      <th className="pb-3 text-center">Action</th>
+                <Table
+                  headers={['Invoice Ref', 'PO Ref', 'Vendor', 'Due Date', 'Invoice Amount', 'Outstanding Amount', 'Status', 'Action']}
+                  data={filteredBills}
+                  itemsPerPage={10}
+                  renderRow={(bill: VendorBill) => (
+                    <tr key={bill.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-slate-900">{bill.billNumber}</td>
+                      <td className="px-6 font-mono text-slate-500">{bill.poNumber}</td>
+                      <td className="px-6 font-bold text-slate-955">{bill.vendorName}</td>
+                      <td className="px-6">{bill.dueDate}</td>
+                      <td className="px-6">₹{bill.billAmount.toLocaleString('en-IN')}</td>
+                      <td className="px-6 text-rose-600 font-bold">₹{bill.outstandingAmount.toLocaleString('en-IN')}</td>
+                      <td className="px-6">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          bill.paymentStatus === 'Paid' ? 'bg-emerald-5 text-emerald-600' : 'bg-amber-5 text-amber-600'
+                        }`}>{bill.paymentStatus}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {bill.outstandingAmount > 0 && bill.paymentStatus !== 'Payment Request Pending' && (
+                          <button
+                            onClick={() => handleOpenPaymentReq(bill)}
+                            className="px-2.5 py-1 bg-primary-blue hover:bg-primary-blue-hover text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            Request Dues Pay
+                          </button>
+                        )}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBills.map(bill => (
-                      <tr key={bill.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-slate-900">{bill.billNumber}</td>
-                        <td className="font-mono text-slate-400">{bill.poNumber}</td>
-                        <td className="font-bold text-slate-955">{bill.vendorName}</td>
-                        <td>{bill.dueDate}</td>
-                        <td className="text-right">₹{bill.billAmount.toLocaleString('en-IN')}</td>
-                        <td className="text-right text-rose-500 font-bold">₹{bill.outstandingAmount.toLocaleString('en-IN')}</td>
-                        <td>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                            bill.paymentStatus === 'Paid' ? 'bg-emerald-5 text-emerald-600' : 'bg-amber-5 text-amber-600'
-                          }`}>{bill.paymentStatus}</span>
-                        </td>
-                        <td className="py-4 text-center">
-                          {bill.outstandingAmount > 0 && bill.paymentStatus !== 'Payment Request Pending' && (
-                            <button
-                              onClick={() => handleOpenPaymentReq(bill)}
-                              className="px-2.5 py-1 bg-primary-blue hover:bg-primary-blue-hover text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                            >
-                              Request Dues Pay
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1685,45 +1689,37 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">Bill Number</th>
-                      <th className="pb-3">Vendor Supplier</th>
-                      <th className="pb-3">Requested Amount</th>
-                      <th className="pb-3">Requested By</th>
-                      <th className="pb-3">Remarks</th>
-                      <th className="pb-3">Status</th>
-                      {currentUser.role === 'Accounts' && <th className="pb-3 text-center">Authorization Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {db.paymentRequests.map(req => (
-                      <tr key={req.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-slate-955">{req.billNumber}</td>
-                        <td className="font-bold">{req.vendorName}</td>
-                        <td className="font-bold text-slate-955">₹{req.requestedAmount.toLocaleString('en-IN')}</td>
-                        <td>{req.requesterName}</td>
-                        <td className="italic">"{req.remarks || 'None'}"</td>
-                        <td>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                            req.status === 'Approved' ? 'bg-emerald-5 text-emerald-600' : 'bg-amber-5 text-amber-600'
-                          }`}>{req.status}</span>
-                        </td>
-                        {currentUser.role === 'Accounts' && req.status === 'Pending' && (
-                          <td className="py-4 text-center">
-                            <button
-                              onClick={() => handleOpenPaymentEntry(req)}
-                              className="px-3 py-1 bg-[#045598] hover:bg-[#03447a] text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                            >
-                              Post UTR Dues
-                            </button>
-                          </td>
+                <Table
+                  headers={['Bill Number', 'Vendor Supplier', 'Requested Amount', 'Requested By', 'Remarks', 'Status', 'Action']}
+                  data={db.paymentRequests}
+                  itemsPerPage={10}
+                  renderRow={(req: PaymentRequest) => (
+                    <tr key={req.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-slate-955">{req.billNumber}</td>
+                      <td className="px-6 font-bold">{req.vendorName}</td>
+                      <td className="px-6 font-bold text-slate-955">₹{req.requestedAmount.toLocaleString('en-IN')}</td>
+                      <td className="px-6">{req.requesterName}</td>
+                      <td className="px-6 italic">"{req.remarks || 'None'}"</td>
+                      <td className="px-6">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          req.status === 'Approved' ? 'bg-emerald-5 text-emerald-600' : 'bg-amber-5 text-amber-600'
+                        }`}>{req.status}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {currentUser.role === 'Accounts' && req.status === 'Pending' ? (
+                          <button
+                            onClick={() => handleOpenPaymentEntry(req)}
+                            className="px-3 py-1 bg-[#045598] hover:bg-[#03447a] text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            Post UTR Dues
+                          </button>
+                        ) : (
+                          <span className="text-slate-400 font-bold">-</span>
                         )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      </td>
+                    </tr>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1738,30 +1734,21 @@ export default function DashboardPage() {
               </div>
 
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">Payment ID</th>
-                      <th className="pb-3">UTR Reference</th>
-                      <th className="pb-3">Vendor</th>
-                      <th className="pb-3">Bill Number</th>
-                      <th className="pb-3 text-right">Disbursed (INR)</th>
-                      <th className="pb-3">Mode</th>
+                <Table
+                  headers={['Payment ID', 'UTR Reference', 'Vendor', 'Bill Number', 'Disbursed (INR)', 'Mode']}
+                  data={db.paymentEntries}
+                  itemsPerPage={10}
+                  renderRow={(pay: PaymentEntry) => (
+                    <tr key={pay.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 font-mono font-bold text-primary-blue">{pay.paymentId}</td>
+                      <td className="px-6 font-mono font-bold text-slate-900">{pay.transactionNumber}</td>
+                      <td className="px-6 font-bold">{pay.vendorName}</td>
+                      <td className="px-6 font-mono text-slate-500">{pay.billNumber}</td>
+                      <td className="px-6 text-emerald-650 font-black">₹{pay.paymentAmount.toLocaleString('en-IN')}</td>
+                      <td className="px-6">{pay.paymentMode}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {db.paymentEntries.map(pay => (
-                      <tr key={pay.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 font-mono font-bold text-primary-blue">{pay.paymentId}</td>
-                        <td className="font-mono font-bold text-slate-900">{pay.transactionNumber}</td>
-                        <td className="font-bold">{pay.vendorName}</td>
-                        <td className="font-mono text-slate-455">{pay.billNumber}</td>
-                        <td className="text-right text-emerald-650 font-black">₹{pay.paymentAmount.toLocaleString('en-IN')}</td>
-                        <td>{pay.paymentMode}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1801,28 +1788,20 @@ export default function DashboardPage() {
           {activeTab === 'audit' && (
             <div className="space-y-8">
               <Card className="p-6">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="pb-3">Date</th>
-                      <th className="pb-3">User</th>
-                      <th className="pb-3">Action</th>
-                      <th className="pb-3">Module</th>
-                      <th className="pb-3">Event Details</th>
+                <Table
+                  headers={['Date', 'User', 'Action', 'Module', 'Event Details']}
+                  data={db.auditLogs}
+                  itemsPerPage={10}
+                  renderRow={(log: AuditLog) => (
+                    <tr key={log.id} className="border-b border-slate-100 text-slate-700">
+                      <td className="px-6 py-4 text-slate-500 font-semibold">{new Date(log.timestamp).toLocaleString()}</td>
+                      <td className="px-6 font-bold">{log.userName}</td>
+                      <td className="px-6 text-primary-blue font-bold">{log.action}</td>
+                      <td className="px-6">{log.module}</td>
+                      <td className="px-6">{log.newValue}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {db.auditLogs.map(log => (
-                      <tr key={log.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-4 text-slate-455">{new Date(log.timestamp).toLocaleString()}</td>
-                        <td className="font-bold">{log.userName}</td>
-                        <td className="text-primary-blue font-bold">{log.action}</td>
-                        <td>{log.module}</td>
-                        <td>{log.newValue}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  )}
+                />
               </Card>
             </div>
           )}
@@ -1841,7 +1820,7 @@ export default function DashboardPage() {
                       onClick={() => markNotifRead(not.id)}
                       className={`p-4 rounded-xl border transition-all cursor-pointer ${
                         isRead 
-                          ? 'bg-slate-50/50 border-slate-200 text-slate-450' 
+                          ? 'bg-slate-50/50 border-slate-200 text-slate-455' 
                           : 'bg-blue-50/50 border-blue-100 text-slate-900 font-bold shadow-sm'
                       }`}
                     >
@@ -1857,6 +1836,71 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* ============================================================== */}
+          {/* TAB 14: ROLE & PERMISSION CONFIGURATOR */}
+          {/* ============================================================== */}
+          {activeTab === 'permissions' && (
+            <div className="space-y-8">
+              <div className="flex justify-between items-end border-b border-slate-200 pb-4">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Role-Based Access Controls (RBAC) Manager</h2>
+                  <p className="text-xs text-slate-500 mt-1">Configure workspace module access parameters dynamically per profile role.</p>
+                </div>
+                <button
+                  onClick={() => setOpenModal('custom-role')}
+                  className="px-4 py-2.5 bg-primary-blue hover:bg-primary-blue-hover text-xs font-bold text-white rounded-xl cursor-pointer flex items-center space-x-1 shadow-md shadow-blue-550/10"
+                >
+                  <Plus className="h-4 w-4" /> <span>Add Custom Role</span>
+                </button>
+              </div>
+
+              <Card className="p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500 font-bold">
+                        <th className="pb-3 text-sm">System Role</th>
+                        {navigationOptions.map(m => (
+                          <th key={m.id} className="pb-3 text-center text-[10px] tracking-wider uppercase min-w-[90px]">
+                            {m.name.replace('System Masters', 'Masters').replace('Store Inwards (GRN)', 'GRN').replace('Role Permissions', 'RBAC')}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {db.rolePermissions.map(rp => (
+                        <tr key={rp.role} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                          <td className="py-4 font-bold text-slate-955 text-sm">{rp.role}</td>
+                          {navigationOptions.map(m => {
+                            const hasAccess = rp.modules.includes(m.id);
+                            return (
+                              <td key={m.id} className="py-4 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={hasAccess}
+                                  onChange={() => handleToggleModulePermission(rp.role, m.id)}
+                                  className="h-4 w-4 rounded border-slate-300 text-[#045598] focus:ring-[#045598]/20 transition-all cursor-pointer accent-[#045598]"
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 flex items-start space-x-3">
+                <AlertTriangle className="h-5 w-5 text-primary-blue flex-shrink-0 mt-0.5" />
+                <div className="text-xs font-semibold text-slate-700 leading-relaxed">
+                  <p className="font-bold text-slate-900 mb-1">Dynamic Workspace Routing</p>
+                  Toggling permission checkboxes updates sidebar and header options instantly. Swapping roles via the quick tester switcher at the top will demonstrate custom routing behaviors immediately.
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -1864,8 +1908,8 @@ export default function DashboardPage() {
       {/* GLOBAL DIALOG OVERLAYS */}
       {/* ============================================================== */}
       {openModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200/80 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-6 space-y-6">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-backdrop-fade">
+          <div className="bg-white border border-slate-200/80 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-6 space-y-6 animate-modal-zoom">
             
             <div className="flex justify-between items-center border-b border-slate-200 pb-4">
               <h3 className="text-md font-bold text-slate-955 capitalize">
@@ -2032,7 +2076,7 @@ export default function DashboardPage() {
                       placeholder="Qty"
                       value={prItemInput.quantity}
                       onChange={(e) => setPrItemInput({ ...prItemInput, quantity: Number(e.target.value) })}
-                      className="w-16 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                      className="w-16 p-2 bg-slate-55 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all text-slate-900"
                     />
                     <button
                       type="button"
@@ -2117,7 +2161,7 @@ export default function DashboardPage() {
                           updated[i].rate = Number(e.target.value);
                           setPoForm({ ...poForm, items: updated });
                         }}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all text-slate-900 font-semibold"
                       />
                     </div>
                   ))}
@@ -2170,7 +2214,7 @@ export default function DashboardPage() {
                               updated[i].receivedQty = Number(e.target.value);
                               setGrnForm({ ...grnForm, items: updated });
                             }}
-                            className="p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                            className="p-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all text-slate-900 font-semibold"
                             placeholder="Recd Qty"
                           />
                           <input
@@ -2182,7 +2226,7 @@ export default function DashboardPage() {
                               updated[i].damagedQty = Number(e.target.value);
                               setGrnForm({ ...grnForm, items: updated });
                             }}
-                            className="p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                            className="p-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all text-slate-900 font-semibold"
                             placeholder="Damaged Qty"
                           />
                         </div>
@@ -2242,7 +2286,7 @@ export default function DashboardPage() {
                       min="1"
                       value={outwardItemInput.quantity}
                       onChange={(e) => setOutwardItemInput({ ...outwardItemInput, quantity: Number(e.target.value) })}
-                      className="w-16 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                      className="w-16 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 transition-all text-slate-900"
                     />
                     <button
                       type="button"
@@ -2332,7 +2376,7 @@ export default function DashboardPage() {
                   value={paymentEntryForm.transactionNumber}
                   onChange={(e) => setPaymentEntryForm({ ...paymentEntryForm, transactionNumber: e.target.value })}
                 />
-                <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-550 font-bold text-white rounded-xl text-xs cursor-pointer">
+                <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-555 font-bold text-white rounded-xl text-xs cursor-pointer bg-emerald-600">
                   Disburse Payment Output
                 </button>
               </form>
@@ -2369,7 +2413,7 @@ export default function DashboardPage() {
                   required
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rose-500 h-24 text-slate-900"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#045598] focus:ring-4 focus:ring-[#045598]/10 h-24 text-slate-900 font-semibold"
                   placeholder="Rejection remarks..."
                 />
                 <button
@@ -2385,6 +2429,47 @@ export default function DashboardPage() {
                   Confirm Rejection
                 </button>
               </div>
+            )}
+
+            {/* Custom Role Creation Modal */}
+            {openModal === 'custom-role' && (
+              <form onSubmit={handleCreateCustomRoleSubmit} className="space-y-4">
+                <Input
+                  label="Custom Role Name"
+                  required
+                  value={customRoleName}
+                  onChange={(e) => setCustomRoleName(e.target.value)}
+                  placeholder="e.g. Auditor"
+                />
+                
+                <div className="space-y-2 border border-slate-200 p-4 rounded-xl max-h-60 overflow-y-auto">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Check Permitted Access Modules</p>
+                  {navigationOptions.map(m => {
+                    const isChecked = customRoleModules.includes(m.id);
+                    return (
+                      <div key={m.id} className="flex items-center space-x-2.5 py-1">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              setCustomRoleModules(customRoleModules.filter(x => x !== m.id));
+                            } else {
+                              setCustomRoleModules([...customRoleModules, m.id]);
+                            }
+                          }}
+                          className="h-4.5 w-4.5 rounded border-slate-300 text-[#045598] focus:ring-[#045598]/20 transition-all cursor-pointer accent-[#045598]"
+                        />
+                        <span className="text-xs font-semibold text-slate-700">{m.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button type="submit" className="w-full py-3.5 bg-primary-blue hover:bg-primary-blue-hover font-bold text-white rounded-xl text-xs cursor-pointer">
+                  Save Role Permissions Config
+                </button>
+              </form>
             )}
 
           </div>
