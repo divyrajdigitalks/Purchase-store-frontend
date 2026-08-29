@@ -1,1 +1,50 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+/* Primary Theme Utility Colors (#045598) */
+.bg-primary-blue {
+  background-color: #045598 !important;
+}
+
+.hover\:bg-primary-blue-hover:hover {
+  background-color: #03447a !important;
+}
+
+.text-primary-blue {
+  color: #045598 !important;
+}
+
+.border-primary-blue {
+  border-color: #045598 !important;
+}
+
+/* Custom Scrollbar styling for Light Theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #045598;
+}
+
+/* Soft Premium Card shadows */
+.light-shadow {
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
+}
+
+.light-hover-shadow:hover {
+  box-shadow: 0 10px 30px -4px rgba(4, 85, 152, 0.1);
+}

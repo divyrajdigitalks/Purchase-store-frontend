@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Nunito } from 'next/font/google';
+import { Toaster } from 'sonner';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'] });
+const nunito = Nunito({
+  subsets: ['latin'],
+  weight: ['300', '400', '600', '700', '800', '900'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: 'Purchase Store',
+  title: 'SteelStream ERP',
   description: 'A beautiful dashboard for Purchase Store',
 };
 
@@ -16,7 +21,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={nunito.className}>
+        {children}
+        <Toaster richColors position="top-right" />
+      </body>
     </html>
   );
 }
