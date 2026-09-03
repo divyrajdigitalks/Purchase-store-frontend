@@ -3,31 +3,79 @@
 @layer base {
   body {
     background-color: #f8fafc;
-    color: #0f172a;
+    color: #0F172C;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    font-size: 15px;
+  }
+
+  /* Date Picker Theme Styling */
+  input[type="date"] {
+    accent-color: #0F172C !important;
+    color-scheme: light;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 4px;
+    opacity: 0.85;
+    transition: all 0.2s ease;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+    background-color: rgba(15, 23, 44, 0.1);
   }
 }
 
-/* Primary Theme Utility Colors (#045598) */
+/* Primary Theme Utility Colors (#0F172C) */
+.bg-theme-navy {
+  background-color: #0F172C !important;
+}
+
+.hover\:bg-theme-navy-hover:hover {
+  background-color: #17223e !important;
+}
+
+.text-theme-navy {
+  color: #0F172C !important;
+}
+
+.border-theme-navy {
+  border-color: #0F172C !important;
+}
+
+/* Legacy Primary Blue remapped to #0F172C for complete color harmony */
 .bg-primary-blue {
-  background-color: #045598 !important;
+  background-color: #0F172C !important;
 }
 
 .hover\:bg-primary-blue-hover:hover {
-  background-color: #03447a !important;
+  background-color: #17223e !important;
 }
 
 .text-primary-blue {
-  color: #045598 !important;
+  color: #0F172C !important;
 }
 
 .border-primary-blue {
-  border-color: #045598 !important;
+  border-color: #0F172C !important;
 }
 
-/* Custom Scrollbar styling for Light Theme */
+/* Dark contrast focus & subtle border utilities */
+.focus-ring-primary {
+  transition: all 0.15s ease-in-out;
+}
+.focus-ring-primary:focus-within, .focus-ring-primary:focus {
+  border-color: #0F172C !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 44, 0.15) !important;
+}
+
+/* Custom Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 ::-webkit-scrollbar-track {
   background: #f1f5f9;
@@ -37,16 +85,24 @@
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #045598;
+  background: #0F172C;
 }
 
-/* Soft Premium Card shadows */
+/* Card shadows */
 .light-shadow {
-  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 44, 0.08);
 }
 
 .light-hover-shadow:hover {
-  box-shadow: 0 10px 30px -4px rgba(4, 85, 152, 0.1);
+  box-shadow: 0 10px 30px -4px rgba(15, 23, 44, 0.14);
+}
+
+/* Table Enhancements */
+.custom-table-row {
+  transition: background-color 0.15s ease;
+}
+.custom-table-row:hover {
+  background-color: rgba(241, 245, 249, 0.85);
 }
 
 /* Smooth Modal Animation Rules */
@@ -61,7 +117,7 @@
 
 @keyframes scaleUp {
   from {
-    transform: scale(0.95);
+    transform: scale(0.96);
     opacity: 0;
   }
   to {
@@ -71,11 +127,11 @@
 }
 
 .animate-backdrop-fade {
-  animation: fadeIn 0.25s ease-out forwards;
+  animation: fadeIn 0.2s ease-out forwards;
 }
 
 .animate-modal-zoom {
-  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Hide scrollbars but keep horizontal overflow scrolling active */
