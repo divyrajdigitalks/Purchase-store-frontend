@@ -1,20 +1,22 @@
+"use client";
+
 import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 interface TableProps<T> {
   headers: string[];
   data: T[];
   renderRow: (item: T, index: number) => React.ReactNode;
   itemsPerPage?: number;
+  emptyMessage?: string;
 }
 
-export function Table<T>({ headers, data, renderRow, itemsPerPage = 5 }: TableProps<T>) {
+export function Table<T>({ headers, data, renderRow, itemsPerPage = 10, emptyMessage }: TableProps<T>) {
   const [pageSize, setPageSize] = useState(itemsPerPage);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Calculate pagination boundaries
   const totalPages = Math.ceil(data.length / pageSize) || 1;
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  
   const startIndex = (safeCurrentPage - 1) * pageSize;
   const paginatedData = data.slice(startIndex, startIndex + pageSize);
 
@@ -26,22 +28,51 @@ export function Table<T>({ headers, data, renderRow, itemsPerPage = 5 }: TablePr
     if (safeCurrentPage < totalPages) setCurrentPage(safeCurrentPage + 1);
   };
 
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, safeCurrentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
   return (
-    <div className="space-y-0 rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-sm">
+    <div className="rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
       <div className="overflow-x-auto w-full">
-        <table className="w-full text-left text-xs text-slate-700 border-collapse">
+        <table className="w-full text-left text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-200/80 bg-blue-50/40 text-slate-650 font-bold uppercase tracking-wider text-[10px]">
-              {headers.map((h, i) => (
-                <th key={i} className="px-6 py-4">{h}</th>
-              ))}
+            <tr className="bg-slate-50/90 text-slate-700 font-bold text-xs border-b border-slate-200">
+              {headers.map((h, i) => {
+                const isAction = h.toLowerCase().includes('action');
+                return (
+                  <th
+                    key={i}
+                    className={`px-5 py-3.5 whitespace-nowrap ${
+                      isAction ? 'text-right pr-6 w-44' : 'text-left'
+                    }`}
+                  >
+                    {h}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={headers.length} className="px-6 py-10 text-center text-slate-400 italic font-bold">
-                  No matching records discovered.
+                <td colSpan={headers.length} className="px-6 py-12 text-center bg-white">
+                  <div className="flex flex-col items-center justify-center space-y-1.5">
+                    <span className="text-sm font-semibold text-slate-600">
+                      {emptyMessage || 'No records found'}
+                    </span>
+                    <span className="text-xs text-slate-400">Try adjusting your search or filters</span>
+                  </div>
                 </td>
               </tr>
             ) : (
@@ -51,70 +82,91 @@ export function Table<T>({ headers, data, renderRow, itemsPerPage = 5 }: TablePr
         </table>
       </div>
 
-      {/* Pagination Footer block matching parivar.me reference */}
-      <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200/85 bg-slate-50/50 gap-4">
-        
-        {/* Left Side: ROWS selector & Page Ranges */}
-        <div className="flex items-center space-x-3 text-slate-450 font-bold text-[10px] uppercase tracking-wider">
-          <span>ROWS</span>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setCurrentPage(1);
-            }}
-            className="bg-white border border-slate-250 rounded px-1.5 py-0.5 text-xs text-slate-700 font-bold focus:outline-none cursor-pointer focus:border-[#045598] transition-all"
-          >
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={15}>15</option>
-            <option value={25}>25</option>
-          </select>
-          <span>
-            Showing {data.length === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + pageSize, data.length)} of {data.length}
+      {/* Pagination Footer */}
+      <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/40 gap-3">
+        <div className="flex items-center space-x-3 text-xs">
+          <div className="flex items-center space-x-2">
+            <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Rows</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30 transition-all cursor-pointer shadow-2xs"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={15}>15</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+          <span className="text-slate-500 font-medium">
+            Showing <strong className="font-bold text-slate-800">{data.length > 0 ? startIndex + 1 : 0}</strong> to <strong className="font-bold text-slate-800">{Math.min(startIndex + pageSize, data.length)}</strong> of <strong className="font-bold text-slate-800">{data.length}</strong> entries
           </span>
         </div>
 
-        {/* Right Side: Square Page Nav Buttons */}
+        {/* Pagination Controls */}
         <div className="flex items-center space-x-1">
+          <button
+            type="button"
+            onClick={() => setCurrentPage(1)}
+            disabled={safeCurrentPage === 1}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+            title="First page"
+          >
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </button>
           <button
             type="button"
             onClick={handlePrev}
             disabled={safeCurrentPage === 1}
-            className="w-8 h-8 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+            title="Previous page"
           >
-            &lt;
+            <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          
-          {Array.from({ length: totalPages }).map((_, i) => {
-            const p = i + 1;
-            const isActive = p === safeCurrentPage;
-            return (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setCurrentPage(p)}
-                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-[#045598] border-[#045598] text-white shadow-sm'
-                    : 'bg-white border-slate-250 text-slate-650 hover:bg-slate-50'
-                }`}
-              >
-                {p}
-              </button>
-            );
-          })}
+
+          <div className="flex items-center space-x-1 px-1">
+            {getPageNumbers().map((p) => {
+              const isActive = p === safeCurrentPage;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"
             onClick={handleNext}
             disabled={safeCurrentPage === totalPages}
-            className="w-8 h-8 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+            title="Next page"
           >
-            &gt;
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={safeCurrentPage === totalPages}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+            title="Last page"
+          >
+            <ChevronsRight className="h-3.5 w-3.5" />
           </button>
         </div>
-
       </div>
     </div>
   );

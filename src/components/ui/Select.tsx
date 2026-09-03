@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check, Search, X } from 'lucide-react';
 
-interface SelectOption {
+export interface SelectOption {
   value: string;
   label: string;
+  icon?: React.ReactNode;
 }
 
-interface SelectProps {
+export interface SelectProps {
   label?: string;
   options: SelectOption[];
   value: string;
@@ -16,6 +17,10 @@ interface SelectProps {
   placeholder?: string;
   className?: string;
   helperText?: string;
+  required?: boolean;
+  disabled?: boolean;
+  icon?: React.ReactNode;
+  size?: 'sm' | 'md';
 }
 
 export function Select({
@@ -25,9 +30,13 @@ export function Select({
   onChange,
   placeholder = 'Select option...',
   className = '',
-  helperText
+  helperText,
+  disabled = false,
+  icon,
+  size = 'md'
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -37,6 +46,7 @@ export function Select({
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setSearchTerm('');
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -46,52 +56,105 @@ export function Select({
   const handleSelect = (val: string) => {
     onChange({ target: { value: val } });
     setIsOpen(false);
+    setSearchTerm('');
   };
 
+  // Deduplicate options by value
+  const uniqueOptions = options.filter(
+    (opt, index, self) => index === self.findIndex((o) => o.value === opt.value)
+  );
+
+  // Filter options by search term if active
+  const filteredOptions = uniqueOptions.filter((opt) =>
+    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const paddingY = size === 'sm' ? 'py-1.5 px-2.5 text-xs' : 'py-2 px-3 text-sm';
+
   return (
-    <div className={`w-full relative flex flex-col`} ref={containerRef}>
+    <div className="w-full relative flex flex-col" ref={containerRef}>
       {label && (
-        <span className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 select-none">
+        <label className="block text-xs font-semibold text-slate-700 mb-1 select-none">
           {label}
-        </span>
+        </label>
       )}
       
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-100/50 hover:border-slate-350 focus:outline-none focus:ring-4 focus:ring-[#045598]/10 focus:border-[#045598] transition-all text-left cursor-pointer ${className}`}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 focus:bg-white transition-all text-left cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-not-allowed ${paddingY} ${className}`}
       >
-        <span className="truncate">{displayLabel}</span>
-        <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex items-center space-x-2 truncate min-w-0 flex-1">
+          {icon && <span className="text-blue-600 flex-shrink-0">{icon}</span>}
+          {selectedOption?.icon && <span className="flex-shrink-0">{selectedOption.icon}</span>}
+          <span className={`truncate ${!selectedOption ? 'text-slate-400 font-normal' : 'text-[#0F172C] font-semibold'}`}>
+            {displayLabel}
+          </span>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 flex-shrink-0 ml-1.5 ${isOpen ? 'rotate-180 text-blue-600' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-[0_10px_25px_-5px_rgba(0,0,0,0.08)] z-55 max-h-60 overflow-y-auto py-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
-          {options.length === 0 ? (
-            <div className="px-4 py-3 text-xs text-slate-400 italic">No options available</div>
-          ) : (
-            options.map((opt) => {
-              const isSelected = opt.value === value;
-              return (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-55 max-h-64 overflow-hidden flex flex-col py-1 animate-modal-zoom">
+          {/* Optional inline search for long lists */}
+          {uniqueOptions.length > 5 && (
+            <div className="p-2 border-b border-slate-100 flex items-center space-x-2">
+              <Search className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search options..."
+                className="w-full text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none font-medium bg-transparent"
+                autoFocus
+              />
+              {searchTerm && (
                 <button
-                  key={opt.value}
                   type="button"
-                  onClick={() => handleSelect(opt.value)}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 text-xs text-left cursor-pointer hover:bg-slate-50 transition-colors ${
-                    isSelected ? 'text-[#045598] bg-slate-50 font-bold' : 'text-slate-750 font-semibold'
-                  }`}
+                  onClick={() => setSearchTerm('')}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
-                  <span className="truncate">{opt.label}</span>
-                  {isSelected && <Check className="h-3.5 w-3.5 text-[#045598] flex-shrink-0 ml-2" />}
+                  <X className="h-3.5 w-3.5" />
                 </button>
-              );
-            })
+              )}
+            </div>
           )}
+
+          <div className="overflow-y-auto max-h-52 p-1 space-y-0.5">
+            {filteredOptions.length === 0 ? (
+              <div className="px-4 py-3 text-xs text-slate-400 font-medium italic text-center">
+                No matching options found
+              </div>
+            ) : (
+              filteredOptions.map((opt, idx) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={`${opt.value}-${idx}`}
+                    type="button"
+                    onClick={() => handleSelect(opt.value)}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs text-left cursor-pointer transition-colors ${
+                      isSelected 
+                        ? 'text-blue-700 bg-blue-50/80 font-bold' 
+                        : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 truncate min-w-0">
+                      {opt.icon && <span className="flex-shrink-0">{opt.icon}</span>}
+                      <span className="truncate">{opt.label}</span>
+                    </div>
+                    {isSelected && <Check className="h-3.5 w-3.5 text-blue-600 flex-shrink-0 ml-2" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
       {helperText && (
-        <p className="mt-1.5 text-xs text-slate-500">{helperText}</p>
+        <p className="mt-1 text-xs text-slate-500 font-medium">{helperText}</p>
       )}
     </div>
   );
